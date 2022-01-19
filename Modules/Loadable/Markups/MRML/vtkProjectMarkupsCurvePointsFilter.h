@@ -27,6 +27,7 @@
 class vtkDoubleArray;
 class vtkOBBTree;
 class vtkPointLocator;
+class vtkCellLocator;
 class vtkPoints;
 class vtkPolyData;
 
@@ -113,6 +114,9 @@ private:
   static bool ConstrainPointsToSurfaceImpl(vtkOBBTree* surfaceObbTree, vtkPointLocator* pointLocator,
       vtkPoints* originalPoints, vtkDoubleArray* normalVectors, vtkPolyData* surfacePolydata,
       vtkPoints* surfacePoints, double maximumSearchRadius=.25);
+  static bool ConstrainPointsToSurfaceImpl(vtkOBBTree* surfaceObbTree, vtkCellLocator* cellLocator,
+      vtkPoints* originalPoints, vtkDoubleArray* normalVectors, vtkPolyData* surfacePolydata,
+      vtkPoints* surfacePoints, double maximumSearchRadius=.25);
 
   class PointProjectionHelper
   {
@@ -125,6 +129,7 @@ private:
     vtkPointLocator* GetPointLocator();
     vtkOBBTree* GetObbTree();
     vtkPolyData* GetSurfacePolyData();
+    vtkCellLocator* GetCellLocator();
 
   private:
     vtkMRMLModelNode* Model;
@@ -132,6 +137,7 @@ private:
     vtkMTimeType LastTransformModifiedTime;
     vtkSmartPointer<vtkDataArray> ModelNormalVectorArray;
     vtkSmartPointer<vtkPointLocator> ModelPointLocator;
+    vtkSmartPointer<vtkCellLocator> ModelCellLocator;
     vtkSmartPointer<vtkOBBTree> ModelObbTree;
     vtkSmartPointer<vtkPolyData> SurfacePolyData;
 
