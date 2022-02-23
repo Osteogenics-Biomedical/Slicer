@@ -1818,7 +1818,7 @@ void vtkSlicerCLIModuleLogic::ApplyTask(void *clientdata)
     itksysProcess_SetOption(process,
                             itksysProcess_Option_Detach, 0);
     itksysProcess_SetOption(process,
-                            itksysProcess_Option_HideWindow, 1);
+                            itksysProcess_Option_HideWindow, 0);
     // itksysProcess_SetTimeout(process, 5.0); // 5 seconds
 
     // execute the command
