@@ -133,13 +133,13 @@ if((NOT DEFINED VTK_DIR OR NOT DEFINED VTK_SOURCE_DIR) AND NOT Slicer_USE_SYSTEM
 
   ExternalProject_SetIfNotDefined(
     Slicer_${proj}_GIT_REPOSITORY
-    "${EP_GIT_PROTOCOL}://github.com/slicer/VTK.git"
+    "${EP_GIT_PROTOCOL}://github.com/Osteogenics-Biomedical/VTK.git"
     QUIET
     )
 
   set(_git_tag)
   if("${Slicer_VTK_VERSION_MAJOR}" STREQUAL "9")
-    set(_git_tag "bccd2b8f7eff92ed08ef60b54ef60303861b5221") # slicer-v9.1.20220125-efbe2afc2
+    set(_git_tag "774445243fac1435bdcb8cc0b2cf918e8229d8ad") # osteogenics-v9.1.20220125-efbe2afc2
     set(vtk_egg_info_version "9.1.20220125")
   else()
     message(FATAL_ERROR "error: Unsupported Slicer_VTK_VERSION_MAJOR: ${Slicer_VTK_VERSION_MAJOR}")
