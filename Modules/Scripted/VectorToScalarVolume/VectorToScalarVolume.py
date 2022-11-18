@@ -1,13 +1,12 @@
 import logging
-from contextlib import contextmanager
-
-import ctk
+from typing import Annotated
 import qt
 import vtk
 
 import slicer
 from slicer.ScriptedLoadableModule import *
-from slicer.util import NodeModify, VTKObservationMixin
+from slicer.util import VTKObservationMixin
+from slicer.parameterNodeWrapper import *
 
 
 @contextmanager
@@ -85,9 +84,26 @@ NIH Roadmap for Medical Research, Grant U54 EB005149."""
 
 
 #
+# VectorToScalarVolumeParameterNode
+#
+_LUMINANCE = 'LUMINANCE'
+_AVERAGE = 'AVERAGE'
+_SINGLE_COMPONENT = 'SINGLE_COMPONENT'
+
+_CONVERSION_METHODS = (_LUMINANCE, _AVERAGE, _SINGLE_COMPONENT)
+
+
+@parameterNodeWrapper
+class VectorToScalarVolumeParameterNode:
+    InputVolume: slicer.vtkMRMLVectorVolumeNode
+    OutputVolume: slicer.vtkMRMLScalarVolumeNode
+    ConversionMethod: Annotated[str, Choice(_CONVERSION_METHODS), Default(_LUMINANCE)]
+    ComponentToExtract: int
+
+
+#
 # VectorToScalarVolumeWidget
 #
-
 class VectorToScalarVolumeWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     """
     The user selected parameters are stored in a parameterNode.
@@ -189,12 +205,24 @@ class VectorToScalarVolumeWidget(ScriptedLoadableModuleWidget, VTKObservationMix
     def cleanup(self):
         self.removeObservers()
 
-    def parameterNode(self):
-        return self._parameterNode
+        # Select default input nodes if nothing is selected yet to save a few clicks for the user
+        if not self._parameterNode.InputVolume:
+            firstVolumeNode = slicer.mrmlScene.GetFirstNodeByClass("vtkMRMLVectorVolumeNode")
+            if firstVolumeNode:
+                self._parameterNode.InputVolume = firstVolumeNode
 
     def setParameterNode(self, inputParameterNode):
-        if inputParameterNode == self._parameterNode:
-            return
+        """
+        Set and observe parameter node.
+        Observation is needed because when the parameter node is changed then the GUI must be updated immediately.
+        """
+
+        if isinstance(inputParameterNode, slicer.vtkMRMLScriptedModuleNode):
+            inputParameterNode = VectorToScalarVolumeParameterNode(inputParameterNode)
+
+        # Unobserve previously selected parameter node and add an observer to the newly selected.
+        # Changes of parameter node are observed so that whenever parameters are changed by a script or any other module
+        # those are reflected immediately in the GUI.
         if self._parameterNode is not None:
             self.removeObserver(self._parameterNode, vtk.vtkCommand.ModifiedEvent, self.updateGuiFromMRML)
         if inputParameterNode is not None:
@@ -217,19 +245,23 @@ class VectorToScalarVolumeWidget(ScriptedLoadableModuleWidget, VTKObservationMix
             node = getNode(node)
         self.outputSelector.setCurrentNode(node)
 
-    def updateButtonStates(self):
+        # Update node selectors and sliders
+        self.ui.inputSelector.setCurrentNode(self._parameterNode.InputVolume)
+        self.ui.outputSelector.setCurrentNode(self._parameterNode.OutputVolume)
+        self.ui.methodSelectorComboBox.setCurrentIndex(
+            self.ui.methodSelectorComboBox.findData(self._parameterNode.ConversionMethod))
+        self.ui.componentsSpinBox.value = self._parameterNode.ComponentToExtract
 
-        isMethodSingleComponent = self._parameterNode.GetParameter("ConversionMethod") == VectorToScalarVolumeLogic.SINGLE_COMPONENT
+        isMethodSingleComponent = self._parameterNode.ConversionMethod == VectorToScalarVolumeLogic.SINGLE_COMPONENT
+        self.ui.componentsSpinBox.visible = isMethodSingleComponent
 
         # Update apply button state and tooltip
         applyErrorMessage = ""
-        if not self.inputVolumeNode():
+        if not self._parameterNode.InputVolume:
             applyErrorMessage = "Please select Input Vector Volume"
-        elif not self.outputVolumeNode():
+        elif not self._parameterNode.OutputVolume:
             applyErrorMessage = "Please select Output Scalar Volume"
-        elif not self.parameterNode():
-            applyErrorMessage = "Please select Parameter set"
-        elif isMethodSingleComponent and (int(self._parameterNode.GetParameter("ComponentToExtract")) < 0):
+        elif isMethodSingleComponent and self._parameterNode.ComponentToExtract < 0:
             applyErrorMessage = "Please select a component to extract"
 
         self.applyButton.enabled = (not applyErrorMessage)
@@ -257,17 +289,12 @@ class VectorToScalarVolumeWidget(ScriptedLoadableModuleWidget, VTKObservationMix
         if not self.parameterNode():
             return
 
-        self.setInputVolumeNode(self._parameterNode.GetParameter("InputVectorVolume"))
-        self.setOutputVolumeNode(self._parameterNode.GetParameter("OutputScalarVolume"))
-        self.conversionMethodWidget.methodSelectorComboBox.setCurrentIndex(
-            self.conversionMethodWidget.methodSelectorComboBox.findData(
-                self._parameterNode.GetParameter("ConversionMethod")))
-        self.conversionMethodWidget.componentsComboBox.setCurrentIndex(
-            int(self._parameterNode.GetParameter("ComponentToExtract")))
-
-    def updateParameterNodeFromGui(self):
-
-        self.updateButtonStates()
+        # Modify all properties in a single batch
+        with slicer.util.NodeModify(self._parameterNode):
+            self._parameterNode.InputVolume = self.ui.inputSelector.currentNode()
+            self._parameterNode.OutputVolume = self.ui.outputSelector.currentNode()
+            self._parameterNode.ConversionMethod = self.ui.methodSelectorComboBox.currentData
+            self._parameterNode.ComponentToExtract = self.ui.componentsSpinBox.value
 
         if self._parameterNode is None:
             return
@@ -286,7 +313,7 @@ class VectorToScalarVolumeWidget(ScriptedLoadableModuleWidget, VTKObservationMix
         # make the output volume appear in all the slice views
         if success:
             selectionNode = slicer.app.applicationLogic().GetSelectionNode()
-            selectionNode.SetActiveVolumeID(self.outputVolumeNode().GetID())
+            selectionNode.SetActiveVolumeID(self._parameterNode.OutputVolume.GetID())
             slicer.app.applicationLogic().PropagateVolumeSelection(0)
 
 
@@ -343,22 +370,14 @@ class VectorToScalarVolumeLogic(ScriptedLoadableModuleLogic):
     It is stateless, with the run function getting inputs and setting outputs.
     """
 
-    LUMINANCE = 'LUMINANCE'
-    AVERAGE = 'AVERAGE'
-    SINGLE_COMPONENT = 'SINGLE_COMPONENT'
-    EXTRACT_COMPONENT_NONE = -1
+    LUMINANCE = _LUMINANCE
+    AVERAGE = _AVERAGE
+    SINGLE_COMPONENT = _SINGLE_COMPONENT
 
-    CONVERSION_METHODS = (LUMINANCE, AVERAGE, SINGLE_COMPONENT)
+    CONVERSION_METHODS = _CONVERSION_METHODS
 
     def __init__(self, parent=None):
         ScriptedLoadableModuleLogic.__init__(self, parent)
-
-    def createParameterNode(self):
-        """ Override base class method to provide default parameters. """
-        node = ScriptedLoadableModuleLogic.createParameterNode(self)
-        node.SetParameter("ConversionMethod", self.LUMINANCE)
-        node.SetParameter("ComponentToExtract", str(self.EXTRACT_COMPONENT_NONE))
-        return node
 
     @staticmethod
     def isValidInputOutputData(inputVolumeNode, outputVolumeNode, conversionMethod, componentToExtract):
@@ -422,13 +441,14 @@ class VectorToScalarVolumeLogic(ScriptedLoadableModuleLogic):
             slicer.util.errorDisplay('Invalid Parameter Node: None')
             return False
 
-        inputVolumeNode = getNode(parameterNode.GetParameter("InputVectorVolume"))
-        outputVolumeNode = getNode(parameterNode.GetParameter("OutputScalarVolume"))
-        conversionMethod = parameterNode.GetParameter("ConversionMethod")
-        componentToExtract = parameterNode.GetParameter("ComponentToExtract")
-        if componentToExtract == '':
-            componentToExtract = str(self.EXTRACT_COMPONENT_NONE)
-        componentToExtract = int(componentToExtract)
+        # allow non wrapped parameter node for backwards compatibility
+        if isinstance(parameterNode, slicer.vtkMRMLScriptedModuleNode):
+            parameterNode = VectorToScalarVolumeParameterNode(parameterNode)
+
+        inputVolumeNode = parameterNode.InputVolume
+        outputVolumeNode = parameterNode.OutputVolume
+        conversionMethod = parameterNode.ConversionMethod
+        componentToExtract = parameterNode.ComponentToExtract
 
         valid, msg = self.isValidInputOutputData(inputVolumeNode, outputVolumeNode, conversionMethod, componentToExtract)
         if not valid:
@@ -452,11 +472,11 @@ class VectorToScalarVolumeLogic(ScriptedLoadableModuleLogic):
     def runWithVariables(self, inputVolumeNode, outputVolumeNode, conversionMethod, componentToExtract):
         """ Convenience method to run with variables, it creates a new parameterNode with these values. """
 
-        parameterNode = self.getParameterNode()
-        parameterNode.SetParameter("InputVectorVolume", getNodeID(inputVolumeNode))
-        parameterNode.SetParameter("OutputScalarVolume", getNodeID(outputVolumeNode))
-        parameterNode.SetParameter("ConversionMethod", conversionMethod)
-        parameterNode.SetParameter("ComponentToExtract", str(componentToExtract))
+        parameterNode = VectorToScalarVolumeParameterNode(self.getParameterNode())
+        parameterNode.InputVolume = inputVolumeNode
+        parameterNode.OutputVolume = outputVolumeNode
+        parameterNode.ConversionMethod = conversionMethod
+        parameterNode.ComponentToExtract = componentToExtract
         return self.run(parameterNode)
 
     def runConversionMethodSingleComponent(self, inputVolumeNode, outputVolumeNode, componentToExtract):
